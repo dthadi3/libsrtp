@@ -37,6 +37,36 @@ matrix:
         - meson compile -C builddir
         - meson test -v -C builddir
 
+    # linux build on ppc64le
+    - os: linux
+      arch: ppc64le
+      env:
+        - TEST="linux (gcc / valgrind)"
+      addons:
+        apt:
+          sources:
+            - ubuntu-toolchain-r-test
+          packages:
+            - gcc-6
+            - valgrind
+      install:
+        - pyenv global 3.7.1
+        - pip3 install meson ninja
+      script:
+        - CC=gcc-6 EXTRA_CFLAGS=-Werror ./configure
+        - make
+        - make runtest
+        - make runtest-valgrind
+        - make distclean
+        - mkdir build && cd build
+        - cmake ..
+        - make
+        - make test
+        - cd ..
+        - CC=gcc-6 meson setup --werror builddir
+        - meson compile -C builddir
+        - meson test -v -C builddir
+          
     # linux build with openssl
     - os: linux
       env:
@@ -71,6 +101,41 @@ matrix:
         - meson compile -C builddir
         - meson test -v -C builddir
 
+    # linux build on ppc64le with openssl 
+    - os: linux
+      arch: ppc64le
+      env:
+        - TEST="linux openssl (gcc / valgrind)"
+      addons:
+        apt:
+          sources:
+            - ubuntu-toolchain-r-test
+          packages:
+            - gcc-6
+            - valgrind
+      install:
+        - pyenv global 3.7.1
+        - pip3 install meson ninja
+      script:
+        - CC=gcc-6 EXTRA_CFLAGS=-Werror ./configure --enable-openssl
+        - make
+        - make runtest
+        - make runtest-valgrind
+        - make distclean
+        - mkdir build && cd build
+        - cmake -DENABLE_OPENSSL=ON ..
+        - make
+        - make test
+        - cd ..
+        - mkdir build_shared && cd build_shared
+        - cmake -DENABLE_OPENSSL=ON -DBUILD_SHARED_LIBS=ON ..
+        - make
+        - make test
+        - cd ..
+        - meson setup --werror -Dcrypto-library=openssl builddir
+        - meson compile -C builddir
+        - meson test -v -C builddir
+          
     # linux build with openssl and clang
     - os: linux
       env:
@@ -90,6 +155,26 @@ matrix:
         - meson compile -C builddir
         - meson test -v -C builddir
 
+    # linux build on ppc64le with openssl and clang
+    - os: linux
+      arch: ppc64le
+      env:
+        - TEST="linux openssl (clang)"
+      addons:
+        apt:
+          packages:
+            - clang
+      install:
+        - pyenv global 3.7.1
+        - pip3 install meson ninja
+      script:
+        - CC=clang EXTRA_CFLAGS=-Werror ./configure --enable-openssl
+        - make
+        - make runtest
+        - CC=clang meson setup --werror -Dcrypto-library=openssl builddir
+        - meson compile -C builddir
+        - meson test -v -C builddir
+          
     # linux build with nss
     - os: linux
       env:
@@ -114,6 +199,31 @@ matrix:
         - meson compile -C builddir
         - meson test -v -C builddir
 
+    # linux build on ppc64le with nss
+    - os: linux
+      arch: ppc64le
+      env:
+        - TEST="linux nss (gcc / valgrind)"
+      addons:
+        apt:
+          sources:
+            - ubuntu-toolchain-r-test
+          packages:
+            - gcc-6
+            - valgrind
+            - libnss3-dev
+      install:
+        - pyenv global 3.7.1
+        - pip3 install meson ninja
+      script:
+        - CC=gcc-6 EXTRA_CFLAGS=-Werror ./configure --enable-nss
+        - make
+        - make runtest
+        - make runtest-valgrind
+        - CC=gcc-6 meson setup --werror -Dcrypto-library=nss builddir
+        - meson compile -C builddir
+        - meson test -v -C builddir
+          
     # default osx build
     - os: osx
       env:
@@ -195,6 +305,18 @@ matrix:
       script:
         - CLANG_FORMAT=clang-format-3.9 ./format.sh -d
 
+    # code format check on ppc64le
+    - os: linux
+      arch: ppc64le
+      env:
+        - TEST="clang-format"
+      addons:
+        apt:
+          packages:
+            - clang-format-3.9
+      script:
+        - CLANG_FORMAT=clang-format-3.9 ./format.sh -d
+          
     # big-endian
     - os: linux
       env:
@@ -241,6 +363,51 @@ matrix:
         - sudo docker exec --tty mipsX meson test -v --timeout-multiplier 10 -C builddir
         - sudo docker kill mipsX
 
+    # big-endian on ppc64le
+    - os: linux
+      arch: ppc64le
+      env:
+        - TEST="big-endian"
+      services:
+        - docker
+      addons:
+        apt:
+          packages:
+            - qemu-user-static
+            - qemu-system-mips
+      before_install:
+        - sudo docker run --volume $(pwd):/src --workdir /src --name mipsX --tty --detach ubuntu:16.04 tail
+        - sudo docker exec --tty mipsX apt-get update
+        - sudo docker exec --tty mipsX apt-get install build-essential -y
+        - sudo docker exec --tty mipsX apt-get install qemu-user-static qemu-system-mips gcc-mips-linux-gnu python3-pip -y
+        - sudo docker exec --tty mipsX pip3 install meson ninja
+      script:
+        - sudo docker exec --tty mipsX bash -c 'EXTRA_CFLAGS=-static CC=mips-linux-gnu-gcc ./configure --host=mips-linux-gnu'
+        - sudo docker exec --tty mipsX make
+        - file test/srtp_driver
+        - make runtest
+        - |
+          cat > mips-cross-file.txt <<EOF
+          [host_machine]
+          system = 'linux'
+          cpu_family = 'mips'
+          cpu = 'mips'
+          endian = 'big'
+          [properties]
+          c_args = ['-static', '-static-libgcc']
+          c_link_args = ['-static', '-static-libgcc']
+          [binaries]
+          ar          = 'mips-linux-gnu-gcc-ar'
+          c           = 'mips-linux-gnu-gcc'
+          ranlib      = 'mips-linux-gnu-gcc-ranlib'
+          exe_wrapper = 'qemu-mips-static'
+          pkgconfig   = 'false'
+          EOF
+        - sudo docker exec --tty mipsX meson setup --cross-file mips-cross-file.txt -Ddefault_library=static -Db_staticpic=false builddir
+        - sudo docker exec --tty mipsX meson compile -C builddir
+        - sudo docker exec --tty mipsX meson test -v --timeout-multiplier 10 -C builddir
+        - sudo docker kill mipsX
+          
     # linux build of fuzzer
     - os: linux
       env:
@@ -253,6 +420,19 @@ matrix:
         - CC=clang CXX=clang++ CXXFLAGS="-fsanitize=fuzzer-no-link,address,undefined -g -O3" CFLAGS="-fsanitize=fuzzer-no-link,address,undefined -g -O3" LDFLAGS="-fsanitize=fuzzer-no-link,address,undefined" ./configure
         - LIBFUZZER="-fsanitize=fuzzer" make srtp-fuzzer
 
+    # linux build of fuzzer on ppc64le
+    - os: linux
+      arch: ppc64le
+      env:
+        - TEST="fuzzer (build only)"
+      addons:
+        apt:
+          packages:
+            - clang
+      script:
+        - CC=clang CXX=clang++ CXXFLAGS="-fsanitize=fuzzer-no-link,address,undefined -g -O3" CFLAGS="-fsanitize=fuzzer-no-link,address,undefined -g -O3" LDFLAGS="-fsanitize=fuzzer-no-link,address,undefined" ./configure
+        - LIBFUZZER="-fsanitize=fuzzer" make srtp-fuzzer
+          
     # coverity scan
     - os: linux
       env:
@@ -270,6 +450,24 @@ matrix:
       script:
         - echo -n | openssl s_client -connect scan.coverity.com:443 | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' | sudo tee -a /etc/ssl/certs/ca-
 
+    # coverity scan on ppc64le
+    - os: linux
+      arch: ppc64le
+      env:
+        - TEST="Coverity Scan"
+      addons:
+        coverity_scan:
+          project:
+            name: "cisco-libSRTP"
+            description: "Build submitted via Travis CI"
+            version: 2
+          notification_email: pabuhler@cisco.com
+          build_command_prepend: "./configure"
+          build_command: "make"
+          branch_pattern: master
+      script:
+        - echo -n | openssl s_client -connect scan.coverity.com:443 | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' | sudo tee -a /etc/ssl/certs/ca-
+          
     # windows build
     - os: windows
       before_install:
